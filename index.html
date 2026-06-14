@@ -428,70 +428,80 @@ function resolveConfirm(res) {
     confirmCallback = null;
 }
 
-// --- Data Models & State ---
-let curSess = localStorage.getItem('njs_active_sess') || '2024-25';
+// --- Cloud Storage Adapter (JSONBin.io) ---
+const CLOUD = {
+    API_KEY: "$2a$10$a4BE0qQW8tmOuW2fcpSiJOa5X8uoYCLSQlT8OfI7nmk2uN50brtf2",
+    BIN_ID: localStorage.getItem('njs_cloud_bin') || null, // Stores the created Bin ID so it remembers where to pull data
+    data: {},
 
-// Master Configuration Migration & Structure
-let rawCfg = localStorage.getItem('njs_cfg_v16');
-let config = rawCfg ? JSON.parse(rawCfg) : {
-    club: 'Garfa Nobojyoti Sangha',
-    cats: ['Cash In Hand', 'Subscription', 'Electric Bill', 'Miscellaneous'],
-    sessions: ['2023-24', '2024-25'],
-    passA: 'admin123',
-    sigA: 'Approved By', sigT: 'Treasurer', sigS: 'Secretary',
-    users: [
-        { name: 'Ranjit Dutta', key: 'A1B2C3', validTill: '12/2025', role: 'member' },
-        { name: 'Sibi Rai', key: 'D4E5F6', validTill: '12/2026', role: 'member' },
-        { name: 'Ranjit Gayen', key: 'G7H8I9', validTill: '10/2026', role: 'member' },
-        { name: 'Tapas Das', key: 'J0K1L2', validTill: '03/2026', role: 'member' },
-        { name: 'Swarup Roy', key: 'M3N4O5', validTill: '08/2024', role: 'member' },
-        { name: 'Apan Roy', key: 'P6Q7R8', validTill: '09/2025', role: 'member' },
-        { name: 'Premchand Mondal', key: 'S9T0U1', validTill: '09/2025', role: 'member' },
-        { name: 'Kalyan Karmakar', key: 'V2W3X4', validTill: '06/2025', role: 'member' },
-        { name: 'Prasanta Das', key: 'Y5Z6A7', validTill: '06/2025', role: 'member' },
-        { name: 'Arun Ghosh', key: 'B8C9D0', validTill: '11/2025', role: 'member' },
-        { name: 'Deb Kumar Deb', key: 'E1F2G3', validTill: '06/2026', role: 'member' },
-        { name: 'Chandan Sengupta', key: 'H4I5J6', validTill: '08/2025', role: 'member' },
-        { name: 'Bijoy Paul', key: 'K7L8M9', validTill: '03/2025', role: 'member' },
-        { name: 'Chanchal Sarkar', key: 'N0O1P2', validTill: '04/2025', role: 'member' },
-        { name: 'Anal Sharma Roy', key: 'Q3R4S5', validTill: '02/2025', role: 'member' },
-        { name: 'Samar Saha', key: 'T6U7V8', validTill: '04/2024', role: 'member' },
-        { name: 'Sushanta Sarkar', key: 'W9X0Y1', validTill: '01/2026', role: 'member' },
-        { name: 'Rajib Saha', key: 'Z2A3B4', validTill: '12/2025', role: 'member' },
-        { name: 'Goutam Paul', key: 'C5D6E7', validTill: '12/2025', role: 'member' },
-        { name: 'Joy Mukherjee', key: 'F8G9H0', validTill: '08/2025', role: 'member' },
-        { name: 'Amit Thakur', key: 'I1J2K3', validTill: '08/2025', role: 'member' },
-        { name: 'Gora Mondal', key: 'L4M5N6', validTill: '06/2025', role: 'member' },
-        { name: 'Shyamal Das', key: 'O7P8Q9', validTill: '04/2025', role: 'member' },
-        { name: 'Barun Deb', key: 'R0S1T2', validTill: '12/2025', role: 'member' },
-        { name: 'Tamal Das', key: 'U3V4W5', validTill: '10/2024', role: 'member' },
-        { name: 'Kartik Dutta', key: 'X6Y7Z8', validTill: '03/2024', role: 'member' }
-    ]
+    async init() {
+        // Show loading screen during cloud connection
+        const loader = document.createElement('div');
+        loader.id = 'cloudLoader';
+        loader.innerHTML = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:var(--bg);z-index:99999;display:flex;justify-content:center;align-items:center;flex-direction:column;"><h2 style="color:var(--primary); margin-bottom: 5px;">NJS MASTER CLOUD</h2><p style="color:var(--text-muted); font-weight: 600;">Syncing secure ledger...</p></div>';
+        document.body.appendChild(loader);
+
+        if (!this.BIN_ID) {
+            // First run: Create a new database bin
+            try {
+                const res = await fetch("https://api.jsonbin.io/v3/b", {
+                    method: "POST",
+                    headers: { 
+                        "Content-Type": "application/json", 
+                        "X-Master-Key": this.API_KEY, 
+                        "X-Bin-Name": "NJS_Ledger_Master" 
+                    },
+                    body: JSON.stringify({ "njs_active_sess": "2024-25" })
+                });
+                const json = await res.json();
+                this.BIN_ID = json.metadata.id;
+                localStorage.setItem('njs_cloud_bin', this.BIN_ID);
+                this.data = json.record;
+                console.log("Cloud Bin Initialized:", this.BIN_ID);
+            } catch(e) { 
+                sysAlert("Failed to initialize Cloud Database. Check network connection."); 
+            }
+        } else {
+            // Successive runs: Load existing data
+            try {
+                const res = await fetch(`https://api.jsonbin.io/v3/b/${this.BIN_ID}/latest`, {
+                    headers: { "X-Master-Key": this.API_KEY }
+                });
+                const json = await res.json();
+                this.data = json.record || {};
+            } catch(e) { 
+                sysAlert("Failed to connect to Cloud Database."); 
+            }
+        }
+        document.body.removeChild(loader);
+    },
+
+    get(key) { return this.data[key] || null; },
+    
+    set(key, val) { 
+        this.data[key] = val; 
+        this.sync(); 
+    },
+
+    async sync() {
+        // Pushes the entire state to JSONBin asynchronously
+        try {
+            await fetch(`https://api.jsonbin.io/v3/b/${this.BIN_ID}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", "X-Master-Key": this.API_KEY },
+                body: JSON.stringify(this.data)
+            });
+        } catch(e) { 
+            console.error("Background sync failed", e); 
+        }
+    }
 };
 
-// Check if old config v15 exists and migrate
-if(!rawCfg && localStorage.getItem('njs_cfg_v15')) {
-    let old = JSON.parse(localStorage.getItem('njs_cfg_v15'));
-    config.club = old.club || config.club;
-    config.cats = old.cats || config.cats;
-    config.sessions = old.sessions || config.sessions;
-    config.passA = old.passA || config.passA;
-    if(old.members) {
-        config.users = old.members.map(m => ({
-            name: m, 
-            key: Math.random().toString(36).substring(2,8).toUpperCase(), 
-            validTill: '12/2025', 
-            role: 'member'
-        }));
-    }
-    localStorage.setItem('njs_cfg_v16', JSON.stringify(config));
-}
+// --- Data Models & State ---
+// Migrated from global scope to be initialized after Cloud connects
+let curSess, config, records, documents, currentUserObj;
 
-let records = [];
-let documents = JSON.parse(localStorage.getItem('njs_docs_v16')) || [];
-let currentUserObj = null;
-
-// Pure Code Equivalent of the Club Banner (Ensures 100% visibility in UI and Print)
+// Pure Code Equivalent of the Club Banner
 const staticBannerHTML = `
 <div style="display: flex; align-items: stretch; max-width: 800px; margin: 0 auto 20px auto; color: #a31621; font-family: Arial, sans-serif; background: white; overflow: hidden; padding: 10px;">
     <div style="width: 80px; display: flex; align-items: center; justify-content: center;">
@@ -527,7 +537,6 @@ const staticBannerHTML = `
     </div>
 </div>`;
 
-// Helper to format dates to DD/MM/YYYY
 function fmtDate(dStr) {
     if(!dStr) return '-';
     const str = String(dStr);
@@ -537,17 +546,67 @@ function fmtDate(dStr) {
 }
 
 // --- Initialization & Auth Flow ---
-window.onload = () => {
-    // Inject Static Banner
+window.onload = async () => {
+    // 1. Connect to Cloud First
+    await CLOUD.init();
+
+    // 2. Load Core Data from Cloud
+    curSess = CLOUD.get('njs_active_sess') || '2024-25';
+    let rawCfg = CLOUD.get('njs_cfg_v16');
+    
+    if (rawCfg) {
+        config = JSON.parse(rawCfg);
+    } else {
+        // Push default configuration to cloud if brand new
+        config = {
+            club: 'Garfa Nobojyoti Sangha',
+            cats: ['Cash In Hand', 'Subscription', 'Electric Bill', 'Miscellaneous'],
+            sessions: ['2023-24', '2024-25'],
+            passA: 'admin123',
+            sigA: 'Approved By', sigT: 'Treasurer', sigS: 'Secretary',
+            users: [
+                { name: 'Ranjit Dutta', key: 'A1B2C3', validTill: '12/2025', role: 'member' },
+                { name: 'Sibi Rai', key: 'D4E5F6', validTill: '12/2026', role: 'member' },
+                { name: 'Ranjit Gayen', key: 'G7H8I9', validTill: '10/2026', role: 'member' },
+                { name: 'Tapas Das', key: 'J0K1L2', validTill: '03/2026', role: 'member' },
+                { name: 'Swarup Roy', key: 'M3N4O5', validTill: '08/2024', role: 'member' },
+                { name: 'Apan Roy', key: 'P6Q7R8', validTill: '09/2025', role: 'member' },
+                { name: 'Premchand Mondal', key: 'S9T0U1', validTill: '09/2025', role: 'member' },
+                { name: 'Kalyan Karmakar', key: 'V2W3X4', validTill: '06/2025', role: 'member' },
+                { name: 'Prasanta Das', key: 'Y5Z6A7', validTill: '06/2025', role: 'member' },
+                { name: 'Arun Ghosh', key: 'B8C9D0', validTill: '11/2025', role: 'member' },
+                { name: 'Deb Kumar Deb', key: 'E1F2G3', validTill: '06/2026', role: 'member' },
+                { name: 'Chandan Sengupta', key: 'H4I5J6', validTill: '08/2025', role: 'member' },
+                { name: 'Bijoy Paul', key: 'K7L8M9', validTill: '03/2025', role: 'member' },
+                { name: 'Chanchal Sarkar', key: 'N0O1P2', validTill: '04/2025', role: 'member' },
+                { name: 'Anal Sharma Roy', key: 'Q3R4S5', validTill: '02/2025', role: 'member' },
+                { name: 'Samar Saha', key: 'T6U7V8', validTill: '04/2024', role: 'member' },
+                { name: 'Sushanta Sarkar', key: 'W9X0Y1', validTill: '01/2026', role: 'member' },
+                { name: 'Rajib Saha', key: 'Z2A3B4', validTill: '12/2025', role: 'member' },
+                { name: 'Goutam Paul', key: 'C5D6E7', validTill: '12/2025', role: 'member' },
+                { name: 'Joy Mukherjee', key: 'F8G9H0', validTill: '08/2025', role: 'member' },
+                { name: 'Amit Thakur', key: 'I1J2K3', validTill: '08/2025', role: 'member' },
+                { name: 'Gora Mondal', key: 'L4M5N6', validTill: '06/2025', role: 'member' },
+                { name: 'Shyamal Das', key: 'O7P8Q9', validTill: '04/2025', role: 'member' },
+                { name: 'Barun Deb', key: 'R0S1T2', validTill: '12/2025', role: 'member' },
+                { name: 'Tamal Das', key: 'U3V4W5', validTill: '10/2024', role: 'member' },
+                { name: 'Kartik Dutta', key: 'X6Y7Z8', validTill: '03/2024', role: 'member' }
+            ]
+        };
+        CLOUD.set('njs_cfg_v16', JSON.stringify(config));
+    }
+
+    documents = JSON.parse(CLOUD.get('njs_docs_v16') || "[]");
+    currentUserObj = null;
+
+    // 3. Render UI Elements
     document.getElementById('homeBannerTarget').innerHTML = staticBannerHTML;
     document.getElementById('lhBannerTarget').innerHTML = staticBannerHTML;
 
-    // Populate Public Dropdown
     let opts = '<option value="">-- Select Profile --</option>';
     config.users.forEach(u => opts += `<option value="${u.name}">${u.name}</option>`);
     document.getElementById('pubLoginSelect').innerHTML = opts;
     
-    // Set Letterhead Date
     document.getElementById('lhDate').innerText = fmtDate(new Date().toISOString().split('T')[0]);
 };
 
@@ -581,7 +640,6 @@ function loginMember() {
     if(u && u.key === key) {
         currentUserObj = u;
         finalizeLogin();
-        // Specific requirement: Show validity popup on login
         setTimeout(() => {
             sysAlert(`Your Club Membership Has been Updated Till ${u.validTill}`, "Login Successful");
         }, 500);
@@ -599,14 +657,12 @@ function finalizeLogin() {
     document.getElementById('dispClub').innerText = config.club;
     document.getElementById('dispUser').innerText = `Logged in as: ${currentUserObj.name} | Role: ${currentUserObj.role.toUpperCase()}`;
     
-    // Enforce Roles
     const isAdmin = currentUserObj.role === 'admin';
     document.querySelectorAll('.admin-only').forEach(el => {
         if(isAdmin) el.classList.remove('hidden');
         else el.classList.add('hidden');
     });
     
-    // Adjust table column headers if not admin
     if(!isAdmin) {
         document.querySelectorAll('.admin-only-cell').forEach(el => el.style.display = 'none');
     }
@@ -623,19 +679,17 @@ function showAppSection(id) {
     
     document.querySelectorAll('.nav-item').forEach(d => d.classList.remove('active'));
     
-    // Mapping section IDs to nav IDs
     const navMap = {'dashboard':'navJournal', 'entrySection':'navEntry', 'ledgerSection':'navLedger', 'trialSection':'navReports', 'docSection':'navDocs', 'adminSection':'navAdmin'};
     if(navMap[id]) document.getElementById(navMap[id]).classList.add('active');
 }
 
 function switchSession(v) { 
     curSess = v; 
-    localStorage.setItem('njs_active_sess', v); 
+    CLOUD.set('njs_active_sess', v); 
     
     loadRecordsForSession();
     updateDrops();
     
-    // Re-render currently visible sections dynamically
     if(!document.getElementById('dashboard').classList.contains('hidden')) refresh();
     if(!document.getElementById('ledgerSection').classList.contains('hidden')) renderLedger();
     if(!document.getElementById('trialSection').classList.contains('hidden')) { renderTrial(); renderSummary(); }
@@ -648,14 +702,14 @@ function promptNewSession() {
         const clean = s.trim();
         if(!config.sessions.includes(clean)) {
             config.sessions.push(clean);
-            localStorage.setItem('njs_cfg_v16', JSON.stringify(config));
+            CLOUD.set('njs_cfg_v16', JSON.stringify(config));
         }
         switchSession(clean);
     }
 }
 
 function loadRecordsForSession() {
-    records = JSON.parse(localStorage.getItem('njs_db_' + curSess)) || [];
+    records = JSON.parse(CLOUD.get('njs_db_' + curSess) || "[]");
     refresh();
 }
 
@@ -669,7 +723,6 @@ function refresh() {
     const isAdmin = currentUserObj && currentUserObj.role === 'admin';
 
     records.forEach((r, i) => {
-        // Auto-clean any corrupted amounts
         r.dr = parseFloat(String(r.dr).replace(/[^0-9.-]+/g,"")) || 0;
         r.cr = parseFloat(String(r.cr).replace(/[^0-9.-]+/g,"")) || 0;
 
@@ -690,7 +743,6 @@ function refresh() {
         </td></tr>`;
     });
     
-    // Total Row
     h += `<tr style="background:#f1f5f9; font-weight:700;">
         <td colspan="4" style="text-align:right; color:var(--primary);">TOTAL (SESSION):</td>
         <td style="color:var(--success);">₹${totalDr}</td>
@@ -700,13 +752,13 @@ function refresh() {
     </tr>`;
 
     document.getElementById('txnBody').innerHTML = h;
-    localStorage.setItem('njs_db_' + curSess, JSON.stringify(records));
+    CLOUD.set('njs_db_' + curSess, JSON.stringify(records));
 }
 
 function genAI() {
     const t = document.getElementById('tType').value, m = document.getElementById('tMem').value, c = document.getElementById('tCat').value, a = document.getElementById('tAmt').value||0, v = document.getElementById('tVou').value||'N/A';
     const action = t==='dr' ? 'received from' : 'paid to';
-    const doc = t==='dr' ? 'Receipt' : 'Voucher';
+    const doc = t==='dr' ? 'Money Receipt' : 'Payment Voucher';
     document.getElementById('tBeing').value = `Being the amount ${action} ${m} on account of ${c} vide ${doc} No. ${v} amounting to Rs. ${a}/-.`;
 }
 
@@ -736,7 +788,6 @@ function resetForm() { document.getElementById('editIdx').value = "-1"; document
 
 function updateDrops() {
     const c = config.cats.map(x => `<option value="${x}">${x}</option>`).join('');
-    // Extract unique members from users config for transaction entry dropdown
     const m = config.users.map(x => `<option value="${x.name}">${x.name}</option>`).join('');
     const s = config.sessions.map(x => `<option value="${x}" ${curSess===x?'selected':''}>${x}</option>`).join('');
     
@@ -841,7 +892,6 @@ function loadAdmin() {
     document.getElementById('admSigT').value = config.sigT;
     document.getElementById('admSigS').value = config.sigS;
     
-    // Letterhead Defaults
     document.getElementById('lhClubName').innerText = config.club;
     document.getElementById('lhSigAuth').innerText = config.sigA;
 
@@ -856,27 +906,30 @@ function saveAdminGeneral() {
     config.sigA = document.getElementById('admSigA').value; 
     config.sigT = document.getElementById('admSigT').value; 
     config.sigS = document.getElementById('admSigS').value;
-    localStorage.setItem('njs_cfg_v16', JSON.stringify(config)); 
+    CLOUD.set('njs_cfg_v16', JSON.stringify(config)); 
     document.getElementById('dispClub').innerText = config.club;
-    sysAlert("General Configuration Updated Successfully!"); 
+    sysAlert("General Configuration Synced to Cloud Successfully!"); 
 }
 
-// Backup & Restore
 function backupData() {
     const data = { config, documents, db: {} };
-    config.sessions.forEach(s => data.db[s] = JSON.parse(localStorage.getItem('njs_db_'+s) || '[]'));
+    config.sessions.forEach(s => data.db[s] = JSON.parse(CLOUD.get('njs_db_'+s) || '[]'));
     const blob = new Blob([JSON.stringify(data)], {type: "application/json"});
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'NJS_Backup.json'; a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'NJS_Cloud_Backup.json'; a.click();
 }
 
 function restoreData(e) {
     const reader = new FileReader();
     reader.onload = (ev) => {
         const data = JSON.parse(ev.target.result);
-        localStorage.setItem('njs_cfg_v16', JSON.stringify(data.config));
-        localStorage.setItem('njs_docs_v16', JSON.stringify(data.documents));
-        for(let s in data.db) localStorage.setItem('njs_db_'+s, JSON.stringify(data.db[s]));
-        sysAlert("Restore complete. Please refresh to load data.");
+        
+        CLOUD.data['njs_cfg_v16'] = JSON.stringify(data.config);
+        CLOUD.data['njs_docs_v16'] = JSON.stringify(data.documents);
+        for(let s in data.db) CLOUD.data['njs_db_'+s] = JSON.stringify(data.db[s]);
+        
+        CLOUD.sync().then(() => {
+            sysAlert("Cloud Restore complete. Please refresh to load data.");
+        });
     };
     reader.readAsText(e.target.files[0]);
 }
@@ -886,13 +939,13 @@ function addCfg(k, id) {
     if(v && !config[k].includes(v)){ 
         config[k].push(v); document.getElementById(id).value=""; 
         loadAdmin(); updateDrops(); 
-        localStorage.setItem('njs_cfg_v16', JSON.stringify(config));
+        CLOUD.set('njs_cfg_v16', JSON.stringify(config));
     }
 }
 function remCfg(k, i) { 
     sysConfirm("Delete this configuration?", () => {
         config[k].splice(i,1); 
-        localStorage.setItem('njs_cfg_v16', JSON.stringify(config));
+        CLOUD.set('njs_cfg_v16', JSON.stringify(config));
         loadAdmin(); updateDrops(); 
     });
 }
@@ -946,7 +999,7 @@ function saveUser() {
     if(idx === -1) config.users.push(obj);
     else config.users[idx] = obj;
     
-    localStorage.setItem('njs_cfg_v16', JSON.stringify(config));
+    CLOUD.set('njs_cfg_v16', JSON.stringify(config));
     document.getElementById('userEditForm').classList.add('hidden');
     renderAdminUsers();
     updateDrops();
@@ -955,7 +1008,7 @@ function saveUser() {
 function delUser(i) {
     sysConfirm(`Delete member ${config.users[i].name}?`, () => {
         config.users.splice(i,1);
-        localStorage.setItem('njs_cfg_v16', JSON.stringify(config));
+        CLOUD.set('njs_cfg_v16', JSON.stringify(config));
         renderAdminUsers();
     });
 }
@@ -968,14 +1021,14 @@ function uploadDoc() {
     if(!name || !fileInp.files.length) return sysAlert("Please provide document name and select a PDF file.");
     
     const file = fileInp.files[0];
-    if(file.size > 2 * 1024 * 1024) return sysAlert("File is too large. Max size is 2MB to fit local storage limits.");
+    if(file.size > 2 * 1024 * 1024) return sysAlert("File is too large. Cloud limit is 2MB per file.");
 
     const reader = new FileReader();
     reader.onload = (e) => {
         try {
             documents.push({ id: Date.now(), sess: sess, name: name, dataUrl: e.target.result });
-            localStorage.setItem('njs_docs_v16', JSON.stringify(documents));
-            sysAlert("Document successfully uploaded and bound to session " + sess);
+            CLOUD.set('njs_docs_v16', JSON.stringify(documents));
+            sysAlert("Document successfully uploaded to Cloud and bound to session " + sess);
             document.getElementById('upDocName').value = "";
             fileInp.value = "";
             renderAdminDocs();
@@ -995,9 +1048,9 @@ function renderAdminDocs() {
 }
 
 function delDoc(i) {
-    sysConfirm("Delete this document?", () => {
+    sysConfirm("Delete this document from Cloud?", () => {
         documents.splice(i,1);
-        localStorage.setItem('njs_docs_v16', JSON.stringify(documents));
+        CLOUD.set('njs_docs_v16', JSON.stringify(documents));
         renderAdminDocs();
     });
 }
@@ -1049,7 +1102,7 @@ function importExcel(e) {
                 let parsedCat = String(x.Category || x.Head || "Miscellaneous").trim();
                 if(parsedCat && !config.cats.includes(parsedCat)) {
                     config.cats.push(parsedCat);
-                    localStorage.setItem('njs_cfg_v16', JSON.stringify(config));
+                    CLOUD.data['njs_cfg_v16'] = JSON.stringify(config); // Save silently to avoid multiple calls
                 }
 
                 const cleanAmt = (val) => {
@@ -1069,7 +1122,7 @@ function importExcel(e) {
                 });
             });
             refresh(); 
-            sysAlert("Batch Excel Import Successful!");
+            sysAlert("Batch Excel Import Synced to Cloud Successfully!");
         } catch(err) {
             console.error(err);
             sysAlert("Error importing file. Please verify format.", "Import Failed");
